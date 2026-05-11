@@ -1,0 +1,29 @@
+{
+  "name": "megabuscador-worker",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Weblabb/MegaBuscadorWorker.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Weblabb/MegaBuscadorWorker/issues"
+  },
+  "homepage": "https://github.com/Weblabb/MegaBuscadorWorker#readme",
+  "dependencies": {
+    "@notionhq/client": "^5.20.0",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}
