@@ -55,7 +55,7 @@ app.post('/webhook', async (req, res) => {
 
   try {
     const event = req.body;
-    
+
     if (!event.entity || !event.entity.id) {
       return res.status(200).send('OK');
     }
@@ -79,13 +79,14 @@ app.post('/webhook', async (req, res) => {
     const url = pageData.url;
 
     // 3. Buscar en INDICE_MASTER por PAGE_ID
-    const existing = await notion.databases.query({
-      database_id: INDICE_MASTER,
+    const existing = await notion.dataSources.query({
+      data_source_id: INDICE_MASTER,
       filter: {
         property: 'PAGE_ID',
         rich_text: { equals: pageId }
       }
     });
+
 
     // 4. Preparar propiedades
     const properties = {
@@ -108,7 +109,7 @@ app.post('/webhook', async (req, res) => {
       console.log('Registro actualizado:', nombre);
     } else {
       await notion.pages.create({
-        parent: { database_id: INDICE_MASTER },
+        parent: { data_source_id: INDICE_MASTER },
         properties: {
           ...properties,
           'Fecha de creación': { date: { start: new Date().toISOString() } }
