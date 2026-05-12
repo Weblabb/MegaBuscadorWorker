@@ -5,11 +5,10 @@ const { Client } = require('@notionhq/client');
 const app = express();
 app.use(express.json());
 
-// Cliente de Notion
 const notion = new Client({ auth: process.env.NOTION_TOKEN });
 const INDICE_MASTER = process.env.INDICE_MASTER_DB_ID;
 
-// Mapeo de DATABASE_ID a Tipo y Origen_Base
+// Mapeo de data_source_id a config
 const dbMap = {
   [process.env.DB_PROGRAMAS_Y_PROYECTOS]: {
     tipo: 'Proyecto',
@@ -38,16 +37,16 @@ const dbMap = {
   }
 };
 
-// Endpoint para health check
+// Health check
 app.get('/', (req, res) => {
   res.send('Worker activo');
 });
 
-// Endpoint para recibir webhook de Notion
+// Webhook de Notion
 app.post('/webhook', async (req, res) => {
   console.log('Evento recibido:', JSON.stringify(req.body, null, 2));
 
-  // Verificación inicial del webhook (Notion envía un token de verificación)
+  // Verificación inicial del webhook
   if (req.body.verification_token) {
     console.log('Token de verificación:', req.body.verification_token);
     return res.status(200).json({ verification_token: req.body.verification_token });
@@ -64,21 +63,24 @@ app.post('/webhook', async (req, res) => {
 
     // 1. Obtener datos de la página
     const pageData = await notion.pages.retrieve({ page_id: pageId });
-    const parentDbId = pageData.parent.database_id?.replace(/-/g, '');
+    
+    // 2. Identificar de qué base viene (API nueva: data_source_id)
+    const parentDsId = pageData.parent.data_source_id;
 
-    if (!parentDbId || !dbMap[parentDbId]) {
+    if (!parentDsId || !dbMap[parentDsId]) {
       console.log('La página no viene de una base mapeada. Ignorando.');
+      console.log('parent recibido:', pageData.parent);
       return res.status(200).send('OK');
     }
 
-    const config = dbMap[parentDbId];
+    const config = dbMap[parentDsId];
 
-    // 2. Sacar nombre y URL
+    // 3. Sacar nombre y URL
     const titleProp = Object.values(pageData.properties).find(p => p.type === 'title');
     const nombre = titleProp?.title?.[0]?.plain_text || 'Sin título';
     const url = pageData.url;
 
-    // 3. Buscar en INDICE_MASTER por PAGE_ID
+    // 4. Buscar en INDICE_MASTER por PAGE_ID
     const existing = await notion.dataSources.query({
       data_source_id: INDICE_MASTER,
       filter: {
@@ -87,12 +89,11 @@ app.post('/webhook', async (req, res) => {
       }
     });
 
-
-    // 4. Preparar propiedades
+    // 5. Preparar propiedades
     const properties = {
       'Nombre': { title: [{ text: { content: nombre } }] },
       'PAGE_ID': { rich_text: [{ text: { content: pageId } }] },
-      'DATABASE_ID_ORIGEN': { rich_text: [{ text: { content: parentDbId } }] },
+      'DATABASE_ID_ORIGEN': { rich_text: [{ text: { content: parentDsId } }] },
       'Tipo': { select: { name: config.tipo } },
       'Origen_Base': { select: { name: config.origen } },
       'URL': { url: url },
@@ -100,7 +101,7 @@ app.post('/webhook', async (req, res) => {
       [config.relacion]: { relation: [{ id: pageId }] }
     };
 
-    // 5. UPDATE o CREATE
+    // 6. UPDATE o CREATE
     if (existing.results.length > 0) {
       await notion.pages.update({
         page_id: existing.results[0].id,
