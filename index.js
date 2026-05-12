@@ -46,7 +46,7 @@ app.get('/', (req, res) => {
 app.post('/webhook', async (req, res) => {
   console.log('Evento recibido:', JSON.stringify(req.body, null, 2));
 
-  // Verificación inicial del webhook
+  // Verificación inicial del webhook nueva
   if (req.body.verification_token) {
     console.log('Token de verificación:', req.body.verification_token);
     return res.status(200).json({ verification_token: req.body.verification_token });
