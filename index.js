@@ -9,6 +9,10 @@ app.use(express.json());
 const notion = new Client({ auth: process.env.NOTION_TOKEN });
 const INDICE_MASTER = process.env.INDICE_MASTER_DB_ID;
 
+// Lock en memoria para evitar race condition
+// Guarda pageIds que están siendo procesados en este momento
+const processingLocks = new Set();
+
 // Tipos de evento que procesamos
 const VALID_EVENT_TYPES = [
   'page.created',
@@ -73,6 +77,13 @@ app.post('/webhook', async (req, res) => {
   }
 
   const pageId = event.entity.id;
+
+  // Lock anti-race: si ya se está procesando este pageId, descartar
+  if (processingLocks.has(pageId)) {
+    console.log(`[LOCK] Evento descartado, pageId en proceso: ${pageId} | evento: ${event.type}`);
+    return res.status(200).send('OK');
+  }
+  processingLocks.add(pageId);
   console.log(`[PROCESANDO] ${event.type} | pageId: ${pageId}`);
 
   try {
@@ -145,6 +156,9 @@ app.post('/webhook', async (req, res) => {
     if (error.code) console.error(`  code: ${error.code}, status: ${error.status}`);
     // Respondemos 200 para evitar reintentos infinitos de Notion
     res.status(200).send('OK');
+  } finally {
+    // Liberar el lock siempre, ocurra error o no
+    processingLocks.delete(pageId);
   }
 });
 
