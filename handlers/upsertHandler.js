@@ -58,7 +58,14 @@ const handleUpsert = async (pageId) => {
 
   // 3. Extraer nombre y URL
   const titleProp = Object.values(pageData.properties).find(p => p.type === 'title');
-  const nombre = titleProp?.title?.[0]?.plain_text || 'Sin título';
+  const nombre = titleProp?.title?.map(t => t.plain_text).join('').trim() || '';
+
+  // Si no hay título, ignorar el evento (evita registros "Sin título")
+  if (!nombre) {
+    console.log(`[IGNORADO] Página sin título. pageId: ${pageId}`);
+    return;
+  }
+
   const url = pageData.url;
 
   // 4. Buscar si ya existe
