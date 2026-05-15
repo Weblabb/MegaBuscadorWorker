@@ -6,11 +6,17 @@
 const notion = require('../lib/notionClient');
 const { INDICE_MASTER, dbMap } = require('../config');
 
-/**
- * Busca un registro en INDICE_MASTER por PAGE_ID.
- * Entrada: pageId (string)
- * Salida: registro existente o null
- */
+const PROP_ESTADO_MASTER = 'Estado opcion multiple';
+const PROP_TAGS = 'TAGS Keywords (buscador tartamudo)';
+const PROP_NOTAS = 'Descripción / Notas';
+
+const ESTADO_CANDIDATES = [
+  'Estado opcion multiple',
+  'Estado',
+  'estado',
+  'Status'
+];
+
 const findExisting = async (pageId) => {
   const result = await notion.dataSources.query({
     data_source_id: INDICE_MASTER,
@@ -19,36 +25,131 @@ const findExisting = async (pageId) => {
       rich_text: { equals: pageId }
     }
   });
+
   return result.results.length > 0 ? result.results[0] : null;
 };
 
-/**
- * Construye el objeto de propiedades comunes para crear o actualizar.
- * Entrada: pageId, parentDsId, nombre, url, config
- * Salida: objeto properties de Notion
- */
-const buildProperties = ({ pageId, parentDsId, nombre, url, config }) => ({
-  'Nombre': { title: [{ text: { content: nombre } }] },
-  'PAGE_ID': { rich_text: [{ text: { content: pageId } }] },
-  'DATABASE_ID_ORIGEN': { rich_text: [{ text: { content: parentDsId } }] },
-  'Tipo': { multi_select: [{ name: config.tipo }] },
-  'Origen_Base': { multi_select: [{ name: config.origen }] },
-  'URL': { url: url },
-  'Última actualización': { date: { start: new Date().toISOString() } },
-  [config.relacion]: { relation: [{ id: pageId }] }
-});
+const getTitle = (pageData) => {
+  const titleProp = Object.values(pageData.properties).find(p => p.type === 'title');
+  return titleProp?.title?.map(t => t.plain_text).join('').trim() || '';
+};
 
-/**
- * Procesa un evento create/update/move/content_updated.
- * Entrada: pageId (string)
- * Salida: void (log)
- */
+const getPlainText = (prop) => {
+  if (!prop) return '';
+
+  if (prop.type === 'rich_text') {
+    return prop.rich_text?.map(t => t.plain_text).join('').trim() || '';
+  }
+
+  if (prop.type === 'title') {
+    return prop.title?.map(t => t.plain_text).join('').trim() || '';
+  }
+
+  if (prop.type === 'select') {
+    return prop.select?.name || '';
+  }
+
+  if (prop.type === 'status') {
+    return prop.status?.name || '';
+  }
+
+  if (prop.type === 'multi_select') {
+    return prop.multi_select?.map(x => x.name).filter(Boolean).join(', ') || '';
+  }
+
+  return '';
+};
+
+const getEstado = (pageData) => {
+  for (const propName of ESTADO_CANDIDATES) {
+    const prop = pageData.properties?.[propName];
+    const value = getPlainText(prop);
+    if (value) return value;
+  }
+
+  return '';
+};
+
+const getManualTags = (pageData) => {
+  const prop = pageData.properties?.[PROP_TAGS];
+
+  if (!prop) return [];
+
+  if (prop.type === 'multi_select') {
+    return prop.multi_select?.map(x => x.name).filter(Boolean) || [];
+  }
+
+  const textValue = getPlainText(prop);
+  return textValue
+    ? textValue.split(',').map(x => x.trim()).filter(Boolean)
+    : [];
+};
+
+const getManualNotas = (pageData) => {
+  return getPlainText(pageData.properties?.[PROP_NOTAS]);
+};
+
+const parseNombre = (nombre) => {
+  const partes = nombre.trim().split(/\s+/).filter(Boolean);
+
+  return {
+    estadoDesdeNombre: partes[0] || '',
+    dominioDesdeNombre: partes[1] || '',
+    tipoDesdeNombre: partes[2] || '',
+    keywordTag: partes[3] || '',
+    asignado: partes.slice(4).join(' ')
+  };
+};
+
+const buildProperties = ({ pageId, parentDsId, nombre, url, config, pageData }) => {
+  const parsed = parseNombre(nombre);
+
+  const estado = getEstado(pageData);
+
+  const manualTags = getManualTags(pageData);
+  const tagsFinales = manualTags.length > 0
+    ? manualTags
+    : (parsed.keywordTag ? [parsed.keywordTag] : []);
+
+  const manualNotas = getManualNotas(pageData);
+  const notasFinales = manualNotas || (parsed.asignado ? `Asignado: ${parsed.asignado}` : '');
+
+  const properties = {
+    'Nombre': { title: [{ text: { content: nombre } }] },
+    'PAGE_ID': { rich_text: [{ text: { content: pageId } }] },
+    'DATABASE_ID_ORIGEN': { rich_text: [{ text: { content: parentDsId } }] },
+    'Tipo': { multi_select: [{ name: config.tipo }] },
+    'Origen_Base': { multi_select: [{ name: config.origen }] },
+    'URL': { url: url },
+    'Última actualización': { date: { start: new Date().toISOString() } },
+    [config.relacion]: { relation: [{ id: pageId }] }
+  };
+
+  if (estado) {
+    properties[PROP_ESTADO_MASTER] = {
+      status: { name: estado }
+    };
+  }
+
+  if (tagsFinales.length > 0) {
+    properties[PROP_TAGS] = {
+      multi_select: tagsFinales.map(tag => ({ name: tag }))
+    };
+  }
+
+  if (notasFinales) {
+    properties[PROP_NOTAS] = {
+      rich_text: [{ text: { content: notasFinales } }]
+    };
+  }
+
+  return properties;
+};
+
 const handleUpsert = async (pageId) => {
-  // 1. Obtener datos de la página original
   const pageData = await notion.pages.retrieve({ page_id: pageId });
   const parentDsId = pageData.parent.data_source_id;
 
-  // 2. Validar que la base esté mapeada
   if (!parentDsId || !dbMap[parentDsId]) {
     console.log(`[IGNORADO] Base no mapeada. parent: ${JSON.stringify(pageData.parent)}`);
     return;
@@ -56,11 +157,8 @@ const handleUpsert = async (pageId) => {
 
   const config = dbMap[parentDsId];
 
-  // 3. Extraer nombre y URL
-  const titleProp = Object.values(pageData.properties).find(p => p.type === 'title');
-  const nombre = titleProp?.title?.map(t => t.plain_text).join('').trim() || '';
+  const nombre = getTitle(pageData);
 
-  // Si no hay título, ignorar el evento (evita registros "Sin título")
   if (!nombre) {
     console.log(`[IGNORADO] Página sin título. pageId: ${pageId}`);
     return;
@@ -68,14 +166,12 @@ const handleUpsert = async (pageId) => {
 
   const url = pageData.url;
 
-  // 4. Buscar si ya existe
   const existing = await findExisting(pageId);
-  const properties = buildProperties({ pageId, parentDsId, nombre, url, config });
+  const properties = buildProperties({ pageId, parentDsId, nombre, url, config, pageData });
 
-  // 5. Update o Create
   if (existing) {
-    // Si estaba marcado como eliminado, restaurarlo en este update
     const wasDeleted = existing.properties?.Eliminado?.checkbox === true;
+
     if (wasDeleted) {
       properties['Eliminado'] = { checkbox: false };
       properties['Fecha_Eliminacion'] = { date: null };
@@ -85,6 +181,7 @@ const handleUpsert = async (pageId) => {
       page_id: existing.id,
       properties
     });
+
     console.log(`[ACTUALIZADO] "${nombre}" (${config.origen})${wasDeleted ? ' [restaurado]' : ''}`);
   } else {
     await notion.pages.create({
@@ -94,6 +191,7 @@ const handleUpsert = async (pageId) => {
         'Fecha de creación': { date: { start: new Date().toISOString() } }
       }
     });
+
     console.log(`[CREADO] "${nombre}" (${config.origen})`);
   }
 };
