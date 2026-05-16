@@ -80,6 +80,7 @@ const getManualTags = (pageData) => {
   }
 
   const textValue = getPlainText(prop);
+
   return textValue
     ? textValue.split(',').map(x => x.trim()).filter(Boolean)
     : [];
@@ -89,30 +90,47 @@ const getManualNotas = (pageData) => {
   return getPlainText(pageData.properties?.[PROP_NOTAS]);
 };
 
-const parseNombre = (nombre) => {
-  const partes = nombre.trim().split(/\s+/).filter(Boolean);
+const extraerTagsTartamudos = (nombre) => {
+  const palabras = nombre
+    .trim()
+    .split(/\s+/)
+    .map(p => p.replace(/[.,;:(){}\[\]"'¿?¡!]/g, '').trim())
+    .filter(Boolean);
 
-  return {
-    estadoDesdeNombre: partes[0] || '',
-    dominioDesdeNombre: partes[1] || '',
-    tipoDesdeNombre: partes[2] || '',
-    keywordTag: partes[3] || '',
-    asignado: partes.slice(4).join(' ')
-  };
+  const tags = palabras.filter(palabra => {
+    const lower = palabra.toLowerCase();
+
+    const empiezaConLetraDoble =
+      lower.length >= 4 &&
+      lower.length <= 7 &&
+      lower[0] === lower[1];
+
+    const noEsUrl =
+      !lower.includes('.com') &&
+      !lower.includes('http') &&
+      !lower.includes('www');
+
+    const noEsNumero =
+      !/^\d+$/.test(lower);
+
+    return empiezaConLetraDoble && noEsUrl && noEsNumero;
+  });
+
+  return [...new Set(tags)];
 };
 
 const buildProperties = ({ pageId, parentDsId, nombre, url, config, pageData }) => {
-  const parsed = parseNombre(nombre);
-
   const estado = getEstado(pageData);
 
   const manualTags = getManualTags(pageData);
+  const tagsDesdeTitulo = extraerTagsTartamudos(nombre);
+
   const tagsFinales = manualTags.length > 0
     ? manualTags
-    : (parsed.keywordTag ? [parsed.keywordTag] : []);
+    : tagsDesdeTitulo;
 
   const manualNotas = getManualNotas(pageData);
-  const notasFinales = manualNotas || (parsed.asignado ? `Asignado: ${parsed.asignado}` : '');
+  const notasFinales = manualNotas;
 
   const properties = {
     'Nombre': { title: [{ text: { content: nombre } }] },
@@ -167,7 +185,14 @@ const handleUpsert = async (pageId) => {
   const url = pageData.url;
 
   const existing = await findExisting(pageId);
-  const properties = buildProperties({ pageId, parentDsId, nombre, url, config, pageData });
+  const properties = buildProperties({
+    pageId,
+    parentDsId,
+    nombre,
+    url,
+    config,
+    pageData
+  });
 
   if (existing) {
     const wasDeleted = existing.properties?.Eliminado?.checkbox === true;
