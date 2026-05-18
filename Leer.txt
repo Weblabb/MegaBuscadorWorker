@@ -1,0 +1,251 @@
+MANUAL BÁSICO DEL WORKER NOTION → INDICE_MASTER
+
+Este Worker sirve para sincronizar varias bases de Notion hacia una base central llamada INDICE_MASTER. 
+La idea es que INDICE_MASTER funcione como un índice general para el Mega Buscador.
+
+==================================================
+1. index.js
+==================================================
+Es el archivo principal del servidor.
+
+Sirve para:
+- Levantar el Worker con Express.
+- Crear la ruta principal de prueba: /
+- Crear la ruta del webhook: /webhook
+- Mostrar en consola cuántas bases están configuradas.
+
+Cuando Render ejecuta el proyecto, normalmente inicia desde este archivo.
+
+Comando:
+node index.js
+
+==================================================
+2. config.js
+==================================================
+Centraliza la configuración del proyecto.
+
+Sirve para:
+- Leer las variables del archivo .env.
+- Guardar el token de Notion.
+- Guardar el ID de INDICE_MASTER.
+- Definir qué eventos del webhook se aceptan.
+- Construir el mapa de bases llamado dbMap.
+
+El dbMap indica:
+- Qué base de Notion se está sincronizando.
+- Qué tipo de registro es.
+- De qué origen viene.
+- Qué relación debe llenar en INDICE_MASTER.
+
+==================================================
+3. notionClient.js
+==================================================
+Crea un cliente único de Notion.
+
+Sirve para:
+- Conectarse a la API de Notion.
+- Evitar repetir la conexión en cada archivo.
+- Reutilizar el mismo cliente en todo el Worker.
+
+==================================================
+4. webhookHandler.js
+==================================================
+Recibe los eventos enviados por Notion.
+
+Sirve para:
+- Validar el webhook.
+- Revisar si el evento viene de una página.
+- Ignorar eventos que no sirven.
+- Evitar duplicados con lock.
+- Mandar el evento al handler correcto.
+
+Según el tipo de evento:
+- page.created → handleUpsert
+- page.properties_updated → handleUpsert
+- page.content_updated → handleUpsert
+- page.moved → handleUpsert
+- page.deleted → handleDelete
+- page.undeleted → handleRestore
+
+También incluye reintentos automáticos si hay errores temporales.
+
+==================================================
+5. upsertHandler.js
+==================================================
+Es el archivo más importante para crear o actualizar registros.
+
+Sirve para:
+- Leer la página original de Notion.
+- Obtener el título completo.
+- Detectar de qué base viene.
+- Buscar si ya existe en INDICE_MASTER usando PAGE_ID.
+- Crear el registro si no existe.
+- Actualizar el registro si ya existe.
+- Copiar campos como:
+  - Nombre
+  - PAGE_ID
+  - DATABASE_ID_ORIGEN
+  - Tipo
+  - Origen_Base
+  - URL
+  - Estado
+  - Tags
+  - Notas
+  - Relación con la base original
+
+También puede extraer tags tartamudos desde el título si no hay tags manuales.
+
+==================================================
+6. deleteHandler.js
+==================================================
+Maneja los borrados y restauraciones.
+
+Sirve para:
+- Cuando una página se borra en la base original, archiva su registro en INDICE_MASTER.
+- Cuando una página se restaura, desarchiva o permite que se vuelva a crear.
+
+Funciones principales:
+- handleDelete(pageId)
+- handleRestore(pageId)
+
+==================================================
+7. logger.js
+==================================================
+Guarda logs en la base LOGS_WORKER de Notion.
+
+Sirve para:
+- Registrar eventos creados.
+- Registrar eventos actualizados.
+- Registrar errores.
+- Registrar eventos ignorados.
+- Medir el tiempo que tardó cada proceso.
+
+Importante:
+Si falla el logger, no rompe el Worker principal.
+
+==================================================
+8. lock.js
+==================================================
+Evita que dos eventos de la misma página se procesen al mismo tiempo.
+
+Sirve para:
+- Prevenir duplicados.
+- Evitar problemas cuando llegan varios webhooks juntos.
+- Bloquear temporalmente un pageId mientras se procesa.
+
+Nota:
+Este lock funciona bien en una sola instancia de Render.
+Si algún día se usan varias instancias, sería mejor usar Redis.
+
+==================================================
+9. resync.js
+==================================================
+Sirve como respaldo del webhook.
+
+Su función es re-sincronizar páginas desde las bases originales hacia INDICE_MASTER.
+
+Modos:
+
+1. Sincronización incremental:
+node resync.js
+
+Esto sincroniza páginas editadas recientemente.
+
+2. Sincronización por horas:
+node resync.js --hours=6
+
+Esto sincroniza páginas editadas en las últimas 6 horas.
+
+3. Sincronización completa:
+node resync.js --full
+
+Esto recorre todas las páginas de todas las bases configuradas.
+
+Este archivo es importante porque si algún webhook falla, se pierde o Render estaba apagado, el resync puede corregir el índice.
+
+==================================================
+10. cleanupOrphans.js
+==================================================
+Busca registros huérfanos en INDICE_MASTER.
+
+Un registro huérfano es un registro que:
+- Tiene Origen_Base
+- Pero no tiene llena la relación que le corresponde
+
+Sirve para:
+- Detectar registros incompletos.
+- Archivar registros que ya no están correctamente relacionados.
+- Limpiar el índice central.
+
+Este archivo no toca las bases originales.
+
+==================================================
+11. obtener-ids.js
+==================================================
+Sirve para obtener los IDs correctos de las bases de Notion.
+
+Muestra:
+- database_id
+- data_source_id
+
+Es útil porque el Worker necesita usar data_source_id, no siempre database_id.
+
+==================================================
+12. test-conexion.js
+==================================================
+Sirve para probar si el Worker tiene conexión correcta con Notion.
+
+Valida:
+- Que el token funcione.
+- Que INDICE_MASTER sea accesible.
+- Que la integración tenga permisos.
+
+Comando:
+node test-conexion.js
+
+==================================================
+FLUJO GENERAL DEL SISTEMA
+==================================================
+
+1. Notion envía un evento al webhook.
+2. index.js recibe el evento en /webhook.
+3. webhookHandler.js valida el evento.
+4. Si es creación o actualización, manda a upsertHandler.js.
+5. Si es borrado, manda a deleteHandler.js.
+6. upsertHandler.js crea o actualiza el registro en INDICE_MASTER.
+7. logger.js guarda el resultado en LOGS_WORKER.
+8. lock.js evita que se procese dos veces al mismo tiempo.
+9. resync.js funciona como respaldo si algún webhook falla.
+
+==================================================
+COMANDOS ÚTILES
+==================================================
+
+Probar conexión:
+node test-conexion.js
+
+Levantar Worker local:
+node index.js
+
+Obtener IDs de bases:
+node obtener-ids.js
+
+Re-sincronización incremental:
+node resync.js
+
+Re-sincronización de últimas 6 horas:
+node resync.js --hours=6
+
+Re-sincronización completa:
+node resync.js --full
+
+Limpieza de huérfanos:
+node cleanupOrphans.js
+
+==================================================
+RESUMEN
+==================================================
+
+Este Worker ya permite sincronizar varias bases de Notion hacia INDICE_MASTER, manejar creación, actualización, borrado, restauración, logs, bloqueo anti-duplicados y re-sincronización manual o incremental.
+
+La parte más importante para respaldo del webhook es resync.js, porque permite recuperar cambios aunque algún webhook no haya llegado.
