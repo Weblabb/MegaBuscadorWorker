@@ -11,6 +11,11 @@ const DEFAULT_HOURS = Number(process.env.RESYNC_HOURS || 24);
 
 const args = process.argv.slice(2);
 const isFullSync = args.includes('--full');
+const baseArg = args.find(arg => arg.startsWith('--base='));
+
+const onlyBase = baseArg
+  ? baseArg.replace('--base=', '').trim().toUpperCase()
+  : null;
 
 const hoursArg = args.find(arg => arg.startsWith('--hours='));
 const hours = hoursArg
@@ -93,7 +98,7 @@ const runResync = async () => {
   console.log('================================================');
   console.log('RE-SINCRONIZACIÓN INICIADA');
   console.log(`Modo: ${isFullSync ? 'COMPLETA' : 'INCREMENTAL'}`);
-  console.log(`Bases a procesar: ${Object.keys(dbMap).length}`);
+  console.log(`Bases a procesar: ${onlyBase || 'TODAS'}`);
 
   if (!isFullSync) {
     console.log(`Rango: páginas editadas desde ${sinceIso}`);
@@ -104,9 +109,12 @@ const runResync = async () => {
   let totalEncontradas = 0;
   let totalProcesadas = 0;
   let totalErrores = 0;
+for (const [dsId, config] of Object.entries(dbMap)) {
+  if (onlyBase && config.origen.toUpperCase() !== onlyBase) {
+    continue;
+  }
 
-  for (const [dsId, config] of Object.entries(dbMap)) {
-    console.log(`\n--- Base: ${config.origen} ---`);
+  console.log(`\n--- Base: ${config.origen} ---`);
 
     try {
       const pageIds = await listPages(dsId, sinceIso);
