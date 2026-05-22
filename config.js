@@ -26,7 +26,7 @@ const VALID_EVENT_TYPES = [
  */
 const buildDbMap = () => {
   const candidates = [
-    { dsId: process.env.DB_PROGRAMAS_Y_PROYECTOS, config: { tipo: 'Proyecto', origen: 'PROGRAMAS Y PROYECTOS', relacion: 'PROY Y PROG' } },
+    { dsId: process.env.DB_PROGRAMAS_Y_PROYECTOS, config: { tipo: 'Proyecto', origen: 'PROGRAMAS Y PROYECTOS', relacion: 'Programas y Proyectos' } },
     { dsId: process.env.DB_REVISIONES,            config: { tipo: 'Revisión', origen: 'REVISIONES',            relacion: 'Revisiones' } },
     { dsId: process.env.DB_USUARIOS,              config: { tipo: 'Cliente',  origen: 'USUARIOS',              relacion: 'Clientes' } },
     { dsId: process.env.DB_COBRAR_Y_PAGAR,        config: { tipo: 'Factura',  origen: 'COBRAR Y PAGAR',        relacion: 'COBRAR Y PAGAR' } },
