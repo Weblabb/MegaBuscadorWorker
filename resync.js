@@ -84,7 +84,15 @@ const withRetry = async (fn, context = '') => {
         throw error;
       }
 
-      const waitMs = DELAY_MS * attempt * 2;
+      let waitMs;
+
+      if (error.code === 'rate_limited') {
+        waitMs = 60_000 * attempt; // 1 min, 2 min, 3 min
+        console.log(`[RATE LIMIT] Notion alcanzó límite. Esperando ${waitMs / 1000}s...`);
+      } else {
+        waitMs = DELAY_MS * attempt * 2;
+      }
+
       console.log(`[RETRY ${attempt}/${MAX_RETRIES}] ${context} - ${error.message}`);
       await sleep(waitMs);
     }
