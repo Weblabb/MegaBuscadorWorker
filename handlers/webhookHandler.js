@@ -6,7 +6,7 @@
 
 const lock = require('../lib/lock');
 const { writeLog } = require('../lib/logger');
-const { VALID_EVENT_TYPES } = require('../config');
+const { VALID_EVENT_TYPES, INDICE_MASTER } = require('../config');
 const { handleUpsert } = require('./upsertHandler');
 const { handleDelete, handleRestore } = require('./deleteHandler');
 
@@ -59,15 +59,26 @@ const webhookHandler = async (req, res) => {
   }
 
   const event = req.body;
+  const parentDataSourceId =
+    event.data?.parent?.data_source_id ||
+    event.entity?.parent?.data_source_id ||
+    event.parent?.data_source_id;
 
+  const ignoredDataSources = [
+    INDICE_MASTER,
+    process.env.DB_LOGS_WORKER
+  ].filter(Boolean);
+
+  if (parentDataSourceId && ignoredDataSources.includes(parentDataSourceId)) {
+    return res.status(200).send('OK');
+  }
   if (!event.entity || !event.entity.id) {
     return res.status(200).send('OK');
   }
 
-  if (event.entity.type !== 'page') {
-    console.log(`[IGNORADO] Entidad no es página. Tipo: ${event.entity.type}, Evento: ${event.type}`);
-    return res.status(200).send('OK');
-  }
+if (event.entity.type !== 'page') {
+  return res.status(200).send('OK');
+}
 
   if (!VALID_EVENT_TYPES.includes(event.type)) {
     console.log(`[IGNORADO] Evento no soportado: ${event.type}`);
