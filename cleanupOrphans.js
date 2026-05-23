@@ -20,7 +20,9 @@ const relationByOrigen = Object.values(dbMap).reduce((acc, config) => {
     acc[config.origen] = config.relacion;
     return acc;
 }, {});
-
+// Alias para valores antiguos de Origen_Base
+relationByOrigen['PROY Y PROG'] = 'Programas y Proyectos';
+relationByOrigen['PANEL WP'] = 'Dominio Wordpress Panel y Correos Contraseñas y siteground,REDES';
 const getText = (prop) => {
     if (!prop) return '';
 
@@ -86,7 +88,7 @@ const main = async () => {
         }
 
         const relationName = relationByOrigen[origen];
-
+        
         if (!relationName) {
             console.log(`[SKIP] Origen sin relación configurada: ${origen} | ${nombre}`);
             continue;
