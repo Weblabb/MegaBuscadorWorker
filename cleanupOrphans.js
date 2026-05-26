@@ -76,41 +76,47 @@ const main = async () => {
     let orphanCount = 0;
     let deletedCount = 0;
 
-    for (const page of pages) {
-        const props = page.properties;
+ for (const page of pages) {
+    // Si la página ya está archivada, se salta para evitar error de Notion
+    if (page.archived) {
+        continue;
+    }
 
-        const nombre = getText(props.Nombre);
-        const pageIdOrigen = getText(props.PAGE_ID);
-        const origen = getText(props.Origen_Base);
+    const props = page.properties;
 
-        if (!origen) {
-            continue;
-        }
+    const nombre = getText(props.Nombre);
+    const pageIdOrigen = getText(props.PAGE_ID);
+    const origen = getText(props.Origen_Base);
 
-        const relationName = relationByOrigen[origen];
-        
-        if (!relationName) {
-            console.log(`[SKIP] Origen sin relación configurada: ${origen} | ${nombre}`);
-            continue;
-        }
+    if (!origen) {
+        continue;
+    }
 
-        const relationProp = props[relationName];
+    const relationName = relationByOrigen[origen];
 
-        const hasRelation =
-            relationProp &&
-            relationProp.type === 'relation' &&
-            relationProp.relation &&
-            relationProp.relation.length > 0;
+    if (!relationName) {
+        console.log(`[SKIP] Origen sin relación configurada: ${origen} | ${nombre}`);
+        continue;
+    }
 
-        if (!hasRelation) {
-            orphanCount++;
+    const relationProp = props[relationName];
 
-            console.log(`[HUÉRFANO] ${nombre}`);
-            console.log(`  Origen_Base: ${origen}`);
-            console.log(`  PAGE_ID: ${pageIdOrigen}`);
-            console.log(`  Relación esperada: ${relationName}`);
+    const hasRelation =
+        relationProp &&
+        relationProp.type === 'relation' &&
+        relationProp.relation &&
+        relationProp.relation.length > 0;
 
-            if (!DRY_RUN) {
+    if (!hasRelation) {
+        orphanCount++;
+
+        console.log(`[HUÉRFANO] ${nombre}`);
+        console.log(`  Origen_Base: ${origen}`);
+        console.log(`  PAGE_ID: ${pageIdOrigen}`);
+        console.log(`  Relación esperada: ${relationName}`);
+
+        if (!DRY_RUN) {
+            try {
                 await notion.pages.update({
                     page_id: page.id,
                     archived: true
@@ -118,11 +124,23 @@ const main = async () => {
 
                 deletedCount++;
                 console.log('  → Archivado en INDICE_MASTER');
-            } else {
-                console.log('  → Se archivaría en INDICE_MASTER');
+            } catch (error) {
+                if (
+                    error.code === 'validation_error' &&
+                    error.message.includes('archived')
+                ) {
+                    console.log('  → Ya estaba archivado, se omite.');
+                    continue;
+                }
+
+                console.error(`  → ERROR al archivar: ${error.message}`);
+                continue;
             }
+        } else {
+            console.log('  → Se archivaría en INDICE_MASTER');
         }
     }
+}
 
     console.log('========================================');
     console.log(`Huérfanos encontrados: ${orphanCount}`);
