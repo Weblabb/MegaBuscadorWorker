@@ -3,7 +3,7 @@ require('dotenv').config();
 const notion = require('./lib/notionClient');
 const { dbMap } = require('./config');
 const { handleUpsert } = require('./handlers/upsertHandler');
-const MAX_RETRIES = Number(process.env.RESYNC_MAX_RETRIES || 3);
+const { withRetry } = require('./lib/retry');
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const DELAY_MS = Number(process.env.RESYNC_DELAY_MS || 400);
@@ -58,48 +58,7 @@ const listPages = async (dataSourceId, sinceIso = null) => {
 
   return pageIds;
 };
-const isRetryable = (error) => {
-  const code = error.code || '';
-  const message = error.message || '';
 
-  return (
-    code === 'notionhq_client_request_timeout' ||
-    code === 'rate_limited' ||
-    code === 'service_unavailable' ||
-    message.includes('timeout') ||
-    message.includes('ECONNRESET') ||
-    message.includes('ETIMEDOUT')
-  );
-};
-const withRetry = async (fn, context = '') => {
-  let lastError;
-
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      return await fn();
-    } catch (error) {
-      lastError = error;
-
-      if (!isRetryable(error) || attempt === MAX_RETRIES) {
-        throw error;
-      }
-
-      let waitMs;
-
-      if (error.code === 'rate_limited') {
-        waitMs = 60_000 * attempt; // 1 min, 2 min, 3 min
-        console.log(`[RATE LIMIT] Notion alcanzó límite. Esperando ${waitMs / 1000}s...`);
-      } else {
-        waitMs = DELAY_MS * attempt * 2;
-      }
-
-      console.log(`[RETRY ${attempt}/${MAX_RETRIES}] ${context} - ${error.message}`);
-      await sleep(waitMs);
-    }
-  }
-
-  throw lastError;
-};
 const runResync = async () => {
   const sinceIso = isFullSync ? null : getSinceDate();
 
@@ -117,12 +76,13 @@ const runResync = async () => {
   let totalEncontradas = 0;
   let totalProcesadas = 0;
   let totalErrores = 0;
-for (const [dsId, config] of Object.entries(dbMap)) {
-  if (onlyBase && config.origen.toUpperCase() !== onlyBase) {
-    continue;
-  }
 
-  console.log(`\n--- Base: ${config.origen} ---`);
+  for (const [dsId, config] of Object.entries(dbMap)) {
+    if (onlyBase && config.origen.toUpperCase() !== onlyBase) {
+      continue;
+    }
+
+    console.log(`\n--- Base: ${config.origen} ---`);
 
     try {
       const pageIds = await listPages(dsId, sinceIso);

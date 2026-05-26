@@ -1,52 +1,15 @@
 /**
  * handlers/webhookHandler.js
  * Recibe el webhook de Notion, responde 200 OK inmediato y procesa en background.
- * Incluye reintentos automáticos y logging de errores.
+ * Incluye reintentos automáticos (lib/retry.js) y logging de errores.
  */
 
 const lock = require('../lib/lock');
 const { writeLog } = require('../lib/logger');
+const { withRetry } = require('../lib/retry');
 const { VALID_EVENT_TYPES, INDICE_MASTER } = require('../config');
 const { handleUpsert } = require('./upsertHandler');
 const { handleDelete, handleRestore } = require('./deleteHandler');
-
-const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 2000;
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-
-/**
- * Determina si un error es recuperable.
- */
-const isRetryable = (error) => {
-  const code = error.code || '';
-  const message = error.message || '';
-  return (
-    code === 'notionhq_client_request_timeout' ||
-    code === 'rate_limited' ||
-    code === 'service_unavailable' ||
-    message.includes('timeout') ||
-    message.includes('ECONNRESET') ||
-    message.includes('ETIMEDOUT')
-  );
-};
-
-/**
- * Ejecuta una función async con reintentos automáticos.
- */
-const withRetry = async (fn, context = '') => {
-  let lastError;
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      return await fn();
-    } catch (error) {
-      lastError = error;
-      if (!isRetryable(error) || attempt === MAX_RETRIES) throw error;
-      console.log(`[RETRY ${attempt}/${MAX_RETRIES}] ${context} - ${error.message}`);
-      await sleep(RETRY_DELAY_MS * attempt);
-    }
-  }
-  throw lastError;
-};
 
 /**
  * Procesa un evento en background.

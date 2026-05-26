@@ -20,6 +20,12 @@ const ESTADO_CANDIDATES = [
   'Status'
 ];
 
+// Espera aleatoria corta para reducir race conditions entre eventos simultáneos
+const jitter = () => {
+  const ms = 50 + Math.floor(Math.random() * 150);
+  return new Promise(r => setTimeout(r, ms));
+};
+
 const findExisting = async (pageId) => {
   const result = await notion.dataSources.query({
     data_source_id: INDICE_MASTER,
@@ -218,6 +224,10 @@ const handleUpsert = async (pageId) => {
 
     return;
   }
+
+  // Espera corta aleatoria antes de la 2da verificación.
+  // Si otro evento del mismo pageId está creando en paralelo, este lo detectará en findExisting.
+  await jitter();
 
   const existingBeforeCreate = await findExisting(pageId);
 
