@@ -1,6 +1,7 @@
 /**
  * index.js
- * Entrada de la app. Configura Express y conecta el webhook handler.
+ * Entrada de la app. Configura Express, conecta el webhook handler
+ * y registra listeners globales para errores no atrapados.
  */
 
 const express = require('express');
@@ -17,6 +18,15 @@ app.get('/', (req, res) => {
 
 // Webhook principal de Notion
 app.post('/webhook', webhookHandler);
+
+// Listeners globales: evitan que el Worker muera por un error no atrapado
+process.on('unhandledRejection', (reason) => {
+  console.error('[UNHANDLED REJECTION]', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[UNCAUGHT EXCEPTION]', error);
+});
 
 // Arranque
 app.listen(PORT, () => {
