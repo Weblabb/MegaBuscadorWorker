@@ -1,6 +1,7 @@
 require('dotenv').config();
 
 const notion = require('./lib/notionClient');
+const log = require('./lib/log');
 const { dbMap } = require('./config');
 const { handleUpsert } = require('./handlers/upsertHandler');
 const { withRetry } = require('./lib/retry');
@@ -62,16 +63,16 @@ const listPages = async (dataSourceId, sinceIso = null) => {
 const runResync = async () => {
   const sinceIso = isFullSync ? null : getSinceDate();
 
-  console.log('================================================');
-  console.log('RE-SINCRONIZACIÓN INICIADA');
-  console.log(`Modo: ${isFullSync ? 'COMPLETA' : 'INCREMENTAL'}`);
-  console.log(`Bases a procesar: ${onlyBase || 'TODAS'}`);
+  log.info('================================================');
+  log.info('RE-SINCRONIZACIÓN INICIADA');
+  log.info(`Modo: ${isFullSync ? 'COMPLETA' : 'INCREMENTAL'}`);
+  log.info(`Bases a procesar: ${onlyBase || 'TODAS'}`);
 
   if (!isFullSync) {
-    console.log(`Rango: páginas editadas desde ${sinceIso}`);
+    log.info(`Rango: páginas editadas desde ${sinceIso}`);
   }
 
-  console.log('================================================\n');
+  log.info('================================================\n');
 
   let totalEncontradas = 0;
   let totalProcesadas = 0;
@@ -82,14 +83,14 @@ const runResync = async () => {
       continue;
     }
 
-    console.log(`\n--- Base: ${config.origen} ---`);
+    log.info(`\n--- Base: ${config.origen} ---`);
 
     try {
       const pageIds = await listPages(dsId, sinceIso);
 
       totalEncontradas += pageIds.length;
 
-      console.log(`Páginas encontradas: ${pageIds.length}`);
+      log.info(`Páginas encontradas: ${pageIds.length}`);
 
       for (let i = 0; i < pageIds.length; i++) {
         const pageId = pageIds[i];
@@ -103,40 +104,40 @@ const runResync = async () => {
           totalProcesadas++;
         } catch (error) {
           totalErrores++;
-          console.error(`[ERROR] ${config.origen} | pageId ${pageId}: ${error.message}`);
+          log.error(`[ERROR] ${config.origen} | pageId ${pageId}: ${error.message}`);
 
           if (error.code) {
-            console.error(`  code: ${error.code}`);
+            log.error(`  code: ${error.code}`);
           }
         }
 
         await sleep(DELAY_MS);
 
         if ((i + 1) % 10 === 0 || i + 1 === pageIds.length) {
-          console.log(`  Progreso: ${i + 1}/${pageIds.length}`);
+          log.info(`  Progreso: ${i + 1}/${pageIds.length}`);
         }
       }
 
-      console.log(`Base ${config.origen} terminada.`);
+      log.info(`Base ${config.origen} terminada.`);
     } catch (error) {
       totalErrores++;
-      console.error(`[ERROR BASE] ${config.origen}: ${error.message}`);
+      log.error(`[ERROR BASE] ${config.origen}: ${error.message}`);
 
       if (error.code) {
-        console.error(`  code: ${error.code}`);
+        log.error(`  code: ${error.code}`);
       }
     }
   }
 
-  console.log('\n================================================');
-  console.log('RE-SINCRONIZACIÓN TERMINADA');
-  console.log(`Total encontradas: ${totalEncontradas}`);
-  console.log(`Total procesadas:  ${totalProcesadas}`);
-  console.log(`Total errores:     ${totalErrores}`);
-  console.log('================================================');
+  log.info('\n================================================');
+  log.info('RE-SINCRONIZACIÓN TERMINADA');
+  log.info(`Total encontradas: ${totalEncontradas}`);
+  log.info(`Total procesadas:  ${totalProcesadas}`);
+  log.info(`Total errores:     ${totalErrores}`);
+  log.info('================================================');
 };
 
 runResync().catch(error => {
-  console.error('[ERROR FATAL resync]', error);
+  log.error('[ERROR FATAL resync]', error);
   process.exit(1);
 });

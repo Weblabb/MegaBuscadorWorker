@@ -4,7 +4,10 @@
  * y registra listeners globales para errores no atrapados.
  */
 
+require('dotenv').config();
+
 const express = require('express');
+const log = require('./lib/log');
 const { PORT, dbMap } = require('./config');
 const webhookHandler = require('./handlers/webhookHandler');
 
@@ -21,17 +24,17 @@ app.post('/webhook', webhookHandler);
 
 // Listeners globales: evitan que el Worker muera por un error no atrapado
 process.on('unhandledRejection', (reason) => {
-  console.error('[UNHANDLED REJECTION]', reason);
+  log.error('[UNHANDLED REJECTION]', reason);
 });
 
 process.on('uncaughtException', (error) => {
-  console.error('[UNCAUGHT EXCEPTION]', error);
+  log.error('[UNCAUGHT EXCEPTION]', error);
 });
 
 // Arranque
 app.listen(PORT, () => {
-  console.log('================================================');
-  console.log(`Worker corriendo en puerto ${PORT}`);
-  console.log(`Bases configuradas: ${Object.keys(dbMap).length}`);
-  console.log('================================================');
+  log.info('================================================');
+  log.info(`Worker corriendo en puerto ${PORT}`);
+  log.info(`Bases configuradas: ${Object.keys(dbMap).length}`);
+  log.info('================================================');
 });

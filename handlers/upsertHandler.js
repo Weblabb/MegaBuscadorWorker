@@ -6,6 +6,7 @@
  */
 
 const notion = require('../lib/notionClient');
+const log = require('../lib/log');
 const { writeLog } = require('../lib/logger');
 const { INDICE_MASTER, dbMap } = require('../config');
 
@@ -181,7 +182,7 @@ const handleUpsert = async (pageId) => {
   const nombre = getTitle(pageData);
 
   if (!nombre) {
-    console.log(`[IGNORADO] Página sin título. pageId: ${pageId}`);
+    log.debug(`[IGNORADO] Página sin título. pageId: ${pageId}`);
     await writeLog({
       tipoEvento: 'ignored',
       pageId,
@@ -211,7 +212,7 @@ const handleUpsert = async (pageId) => {
       properties
     });
 
-    console.log(`[ACTUALIZADO] "${nombre}" (${config.origen})${wasDeleted ? ' [restaurado]' : ''}`);
+    log.info(`[ACTUALIZADO] "${nombre}" (${config.origen})${wasDeleted ? ' [restaurado]' : ''}`);
 
     await writeLog({
       tipoEvento: wasDeleted ? 'restored' : 'updated',
@@ -237,7 +238,7 @@ const handleUpsert = async (pageId) => {
       properties
     });
 
-    console.log(`[ACTUALIZADO EN SEGUNDA VERIFICACIÓN] "${nombre}" (${config.origen})`);
+    log.info(`[ACTUALIZADO EN SEGUNDA VERIFICACIÓN] "${nombre}" (${config.origen})`);
 
     await writeLog({
       tipoEvento: 'updated',
@@ -259,7 +260,7 @@ const handleUpsert = async (pageId) => {
     }
   });
 
-  console.log(`[CREADO] "${nombre}" (${config.origen})`);
+  log.info(`[CREADO] "${nombre}" (${config.origen})`);
 
   await writeLog({
     tipoEvento: 'created',

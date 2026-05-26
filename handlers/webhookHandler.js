@@ -5,6 +5,7 @@
  */
 
 const lock = require('../lib/lock');
+const log = require('../lib/log');
 const { writeLog } = require('../lib/logger');
 const { withRetry } = require('../lib/retry');
 const { VALID_EVENT_TYPES, INDICE_MASTER } = require('../config');
@@ -20,11 +21,11 @@ const processEventAsync = async (event) => {
   const pageId = event.entity.id;
 
   if (!lock.acquire(pageId)) {
-    console.log(`[LOCK] Evento descartado, pageId en proceso: ${pageId} | evento: ${event.type}`);
+    log.debug(`[LOCK] Evento descartado, pageId en proceso: ${pageId} | evento: ${event.type}`);
     return;
   }
 
-  console.log(`[PROCESANDO] ${event.type} | pageId: ${pageId}`);
+  log.debug(`[PROCESANDO] ${event.type} | pageId: ${pageId}`);
   const startTime = Date.now();
 
   try {
@@ -41,8 +42,8 @@ const processEventAsync = async (event) => {
       }
     }, `${event.type} ${pageId}`);
   } catch (error) {
-    console.error(`[ERROR DEFINITIVO] pageId ${pageId}: ${error.message}`);
-    if (error.code) console.error(`  code: ${error.code}, status: ${error.status}`);
+    log.error(`[ERROR DEFINITIVO] pageId ${pageId}: ${error.message}`);
+    if (error.code) log.error(`  code: ${error.code}, status: ${error.status}`);
 
     await writeLog({
       tipoEvento: 'error',
@@ -63,7 +64,7 @@ const processEventAsync = async (event) => {
 const webhookHandler = (req, res) => {
   // Verificación inicial del webhook
   if (req.body.verification_token) {
-    console.log('[VERIFICACION] Token:', req.body.verification_token);
+    log.info('[VERIFICACION] Token:', req.body.verification_token);
     return res.status(200).json({ verification_token: req.body.verification_token });
   }
 
@@ -89,7 +90,7 @@ const webhookHandler = (req, res) => {
     return res.status(200).send('OK');
   }
   if (!VALID_EVENT_TYPES.includes(event.type)) {
-    console.log(`[IGNORADO] Evento no soportado: ${event.type}`);
+    log.debug(`[IGNORADO] Evento no soportado: ${event.type}`);
     return res.status(200).send('OK');
   }
 
@@ -97,7 +98,7 @@ const webhookHandler = (req, res) => {
   res.status(200).send('OK');
   setImmediate(() => {
     processEventAsync(event).catch(err => {
-      console.error('[ERROR ASYNC]', err);
+      log.error('[ERROR ASYNC]', err);
     });
   });
 };
