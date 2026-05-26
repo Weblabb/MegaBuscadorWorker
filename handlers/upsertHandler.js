@@ -1,8 +1,8 @@
 /**
  * handlers/upsertHandler.js
- * Lee propiedades de la página origen, refleja en INDICE_MASTER,
+ * Lee propiedades de la página origen, refleja metadata en INDICE_MASTER,
  * extrae tags tartamudos del título si no hay tags manuales,
- * y registra cada evento en LOGS_WORKER.
+ * evita duplicados por PAGE_ID y registra eventos en LOGS_WORKER.
  */
 
 const notion = require('../lib/notionClient');
@@ -20,47 +20,43 @@ const ESTADO_CANDIDATES = [
   'Status'
 ];
 
-/**
- * Busca un registro en INDICE_MASTER por PAGE_ID.
- */
 const findExisting = async (pageId) => {
   const result = await notion.dataSources.query({
     data_source_id: INDICE_MASTER,
     filter: {
       property: 'PAGE_ID',
       rich_text: { equals: pageId }
-    }
+    },
+    page_size: 1
   });
 
   return result.results.length > 0 ? result.results[0] : null;
 };
 
-/**
- * Extrae el título completo concatenando todos los segmentos rich_text.
- */
 const getTitle = (pageData) => {
   const titleProp = Object.values(pageData.properties).find(p => p.type === 'title');
   return titleProp?.title?.map(t => t.plain_text).join('').trim() || '';
 };
 
-/**
- * Convierte cualquier propiedad de Notion en texto plano.
- */
 const getPlainText = (prop) => {
   if (!prop) return '';
 
   if (prop.type === 'rich_text') {
     return prop.rich_text?.map(t => t.plain_text).join('').trim() || '';
   }
+
   if (prop.type === 'title') {
     return prop.title?.map(t => t.plain_text).join('').trim() || '';
   }
+
   if (prop.type === 'select') {
     return prop.select?.name || '';
   }
+
   if (prop.type === 'status') {
     return prop.status?.name || '';
   }
+
   if (prop.type === 'multi_select') {
     return prop.multi_select?.map(x => x.name).filter(Boolean).join(', ') || '';
   }
@@ -68,21 +64,16 @@ const getPlainText = (prop) => {
   return '';
 };
 
-/**
- * Busca el Estado en la página origen probando varios nombres candidatos.
- */
 const getEstado = (pageData) => {
   for (const propName of ESTADO_CANDIDATES) {
     const prop = pageData.properties?.[propName];
     const value = getPlainText(prop);
     if (value) return value;
   }
+
   return '';
 };
 
-/**
- * Lee tags manuales desde la página origen (multi_select o texto separado por comas).
- */
 const getManualTags = (pageData) => {
   const prop = pageData.properties?.[PROP_TAGS];
 
@@ -93,22 +84,16 @@ const getManualTags = (pageData) => {
   }
 
   const textValue = getPlainText(prop);
+
   return textValue
     ? textValue.split(',').map(x => x.trim()).filter(Boolean)
     : [];
 };
 
-/**
- * Lee Descripción / Notas desde la página origen.
- */
 const getManualNotas = (pageData) => {
   return getPlainText(pageData.properties?.[PROP_NOTAS]);
 };
 
-/**
- * Extrae tags tartamudos: palabras del título que empiezan con letra doble (entre 4 y 7 caracteres),
- * que no son URLs ni números puros.
- */
 const extraerTagsTartamudos = (nombre) => {
   const palabras = nombre
     .trim()
@@ -137,10 +122,6 @@ const extraerTagsTartamudos = (nombre) => {
   return [...new Set(tags)];
 };
 
-/**
- * Construye el objeto de propiedades para INDICE_MASTER.
- * Tags manuales tienen prioridad. Si no hay, se extraen tartamudos del título.
- */
 const buildProperties = ({ pageId, parentDsId, nombre, url, config, pageData }) => {
   const estado = getEstado(pageData);
 
@@ -156,7 +137,7 @@ const buildProperties = ({ pageId, parentDsId, nombre, url, config, pageData }) 
     'DATABASE_ID_ORIGEN': { rich_text: [{ text: { content: parentDsId } }] },
     'Tipo': { multi_select: [{ name: config.tipo }] },
     'Origen_Base': { multi_select: [{ name: config.origen }] },
-    'URL': { url: url },
+    'URL': { url },
     'Última actualización': { date: { start: new Date().toISOString() } },
     [config.relacion]: { relation: [{ id: pageId }] }
   };
@@ -180,9 +161,6 @@ const buildProperties = ({ pageId, parentDsId, nombre, url, config, pageData }) 
   return properties;
 };
 
-/**
- * Procesa create/update. Registra cada evento en LOGS_WORKER.
- */
 const handleUpsert = async (pageId) => {
   const startTime = Date.now();
 
@@ -190,14 +168,6 @@ const handleUpsert = async (pageId) => {
   const parentDsId = pageData.parent.data_source_id;
 
   if (!parentDsId || !dbMap[parentDsId]) {
-    console.log(`[IGNORADO] Base no mapeada. parent: ${JSON.stringify(pageData.parent)}`);
-    await writeLog({
-      tipoEvento: 'ignored',
-      pageId,
-      resultado: 'OK',
-      mensaje: `Base no mapeada: ${parentDsId || 'sin parent'}`,
-      tiempoMs: Date.now() - startTime
-    });
     return;
   }
 
@@ -218,8 +188,9 @@ const handleUpsert = async (pageId) => {
   }
 
   const url = pageData.url;
-  const existing = await findExisting(pageId);
   const properties = buildProperties({ pageId, parentDsId, nombre, url, config, pageData });
+
+  const existing = await findExisting(pageId);
 
   if (existing) {
     const wasDeleted = existing.properties?.Eliminado?.checkbox === true;
@@ -235,6 +206,7 @@ const handleUpsert = async (pageId) => {
     });
 
     console.log(`[ACTUALIZADO] "${nombre}" (${config.origen})${wasDeleted ? ' [restaurado]' : ''}`);
+
     await writeLog({
       tipoEvento: wasDeleted ? 'restored' : 'updated',
       pageId,
@@ -243,25 +215,53 @@ const handleUpsert = async (pageId) => {
       mensaje: nombre,
       tiempoMs: Date.now() - startTime
     });
-  } else {
-    await notion.pages.create({
-      parent: { data_source_id: INDICE_MASTER },
-      properties: {
-        ...properties,
-        'Fecha de creación': { date: { start: new Date().toISOString() } }
-      }
+
+    return;
+  }
+
+  const existingBeforeCreate = await findExisting(pageId);
+
+  if (existingBeforeCreate) {
+    await notion.pages.update({
+      page_id: existingBeforeCreate.id,
+      properties
     });
 
-    console.log(`[CREADO] "${nombre}" (${config.origen})`);
+    console.log(`[ACTUALIZADO EN SEGUNDA VERIFICACIÓN] "${nombre}" (${config.origen})`);
+
     await writeLog({
-      tipoEvento: 'created',
+      tipoEvento: 'updated',
       pageId,
       baseOrigen: config.origen,
       resultado: 'OK',
-      mensaje: nombre,
+      mensaje: `${nombre} | segunda verificación anti-duplicado`,
       tiempoMs: Date.now() - startTime
     });
+
+    return;
   }
+
+  await notion.pages.create({
+    parent: { data_source_id: INDICE_MASTER },
+    properties: {
+      ...properties,
+      'Fecha de creación': { date: { start: new Date().toISOString() } }
+    }
+  });
+
+  console.log(`[CREADO] "${nombre}" (${config.origen})`);
+
+  await writeLog({
+    tipoEvento: 'created',
+    pageId,
+    baseOrigen: config.origen,
+    resultado: 'OK',
+    mensaje: nombre,
+    tiempoMs: Date.now() - startTime
+  });
 };
 
-module.exports = { handleUpsert, findExisting };
+module.exports = {
+  handleUpsert,
+  findExisting
+};
