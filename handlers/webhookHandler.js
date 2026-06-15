@@ -10,7 +10,7 @@ const { writeLog } = require('../lib/logger');
 const { withRetry } = require('../lib/retry');
 const { VALID_EVENT_TYPES, INDICE_MASTER } = require('../config');
 const { handleUpsert } = require('./upsertHandler');
-const { handleDelete, handleRestore } = require('./deleteHandler');
+const { handleDelete } = require('./deleteHandler');
 
 /**
  * Procesa un evento en background.
@@ -35,7 +35,10 @@ const processEventAsync = async (event) => {
           await handleDelete(pageId);
           break;
         case 'page.undeleted':
-          await handleRestore(pageId);
+          // El registro en INDICE_MASTER fue archivado al borrar.
+          // findExisting no puede encontrar páginas archivadas, así que no
+          // intentamos restaurarlo. handleUpsert crea un registro nuevo limpio.
+          await handleUpsert(pageId);
           break;
         default:
           await handleUpsert(pageId);

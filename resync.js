@@ -86,7 +86,12 @@ const runResync = async () => {
     log.info(`\n--- Base: ${config.origen} ---`);
 
     try {
-      const pageIds = await listPages(dsId, sinceIso);
+      // withRetry cubre fallos de red durante la paginación.
+      // Si falla, reinicia la paginación desde el principio (seguro).
+      const pageIds = await withRetry(
+        () => listPages(dsId, sinceIso),
+        `listPages | ${config.origen}`
+      );
 
       totalEncontradas += pageIds.length;
 
