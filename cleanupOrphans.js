@@ -14,7 +14,7 @@ require('dotenv').config();
 const notion = require('./lib/notionClient');
 const { INDICE_MASTER, dbMap } = require('./config');
 
-const DRY_RUN = true; // Cambiar a false solo para ejecutar borrado real
+const DRY_RUN = false; // Cambiar a false solo para ejecutar borrado real
 
 // Relación esperada según Origen_Base
 const relationByOrigen = Object.values(dbMap).reduce((acc, config) => {
