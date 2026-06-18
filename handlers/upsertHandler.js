@@ -74,9 +74,28 @@ const getPlainText = (prop) => {
   return '';
 };
 
+/**
+ * Extrae el estado de la página fuente para escribirlo en INDICE_MASTER.
+ *
+ * REGLA: para multi_select solo se toma el PRIMER valor (valor primario).
+ * Motivo: si se concatenan múltiples valores ("ACTIVO, PAUSADO"), el string
+ * resultante no corresponde a ninguna opción de la propiedad status en
+ * INDICE_MASTER y Notion rechaza la escritura completa del registro.
+ *
+ * Para select y status se toma el valor directamente.
+ */
 const getEstado = (pageData) => {
   for (const propName of ESTADO_CANDIDATES) {
     const prop = pageData.properties?.[propName];
+    if (!prop) continue;
+
+    // multi_select: solo el primer valor (valor primario de estado)
+    if (prop.type === 'multi_select') {
+      const first = prop.multi_select?.[0]?.name;
+      if (first) return first;
+      continue;
+    }
+
     const value = getPlainText(prop);
     if (value) return value;
   }
@@ -171,6 +190,35 @@ const buildProperties = ({ pageId, parentDsId, nombre, url, config, pageData }) 
   return properties;
 };
 
+/**
+ * Ejecuta fn(properties) y, si Notion rechaza por una opción de status
+ * desconocida, reintenta sin la propiedad de estado.
+ *
+ * Esto garantiza que el registro siempre se guarda en INDICE_MASTER aunque
+ * el valor de estado de la fuente no exista aún como opción en INDICE_MASTER.
+ * El log indica qué valor agregar en Notion para sincronizarlo en el futuro.
+ */
+const withEstadoFallback = async (fn, properties, nombre) => {
+  try {
+    return await fn(properties);
+  } catch (error) {
+    const isStatusValidation =
+      error.code === 'validation_error' &&
+      error.message?.toLowerCase().includes('status');
+
+    if (isStatusValidation) {
+      const estadoValue = properties[PROP_ESTADO_MASTER]?.status?.name || '(desconocido)';
+      log.warn(`[ESTADO OMITIDO] "${nombre}" — la opción "${estadoValue}" no existe en INDICE_MASTER. Agrégala en Notion para sincronizar ese campo.`);
+
+      const propertiesSinEstado = { ...properties };
+      delete propertiesSinEstado[PROP_ESTADO_MASTER];
+      return await fn(propertiesSinEstado);
+    }
+
+    throw error;
+  }
+};
+
 const handleUpsert = async (pageId) => {
   const startTime = Date.now();
 
@@ -199,13 +247,11 @@ const handleUpsert = async (pageId) => {
 
   // Señal de borrado: título contiene "xxx" (cualquier combinación de mayúscula/minúscula)
   if (nombre.toLowerCase().includes('xxx')) {
-    // Archivar la página en la base fuente
     await notion.pages.update({
       page_id: pageId,
       archived: true
     });
 
-    // Archivar el registro en INDICE_MASTER si existe
     const existingForDelete = await findExisting(pageId);
     if (existingForDelete) {
       await notion.pages.update({
@@ -239,10 +285,11 @@ const handleUpsert = async (pageId) => {
       properties['Fecha_Eliminacion'] = { date: null };
     }
 
-    await notion.pages.update({
-      page_id: existing.id,
-      properties
-    });
+    await withEstadoFallback(
+      (props) => notion.pages.update({ page_id: existing.id, properties: props }),
+      properties,
+      nombre
+    );
 
     log.info(`[ACTUALIZADO] "${nombre}" (${config.origen})${wasDeleted ? ' [restaurado]' : ''}`);
 
@@ -258,16 +305,17 @@ const handleUpsert = async (pageId) => {
     return;
   }
 
-  // Espera corta aleatoria antes de la 2da verificación.
+  // Espera corta aleatoria antes de la 2da verificación
   await jitter();
 
   const existingBeforeCreate = await findExisting(pageId);
 
   if (existingBeforeCreate) {
-    await notion.pages.update({
-      page_id: existingBeforeCreate.id,
-      properties
-    });
+    await withEstadoFallback(
+      (props) => notion.pages.update({ page_id: existingBeforeCreate.id, properties: props }),
+      properties,
+      nombre
+    );
 
     log.info(`[ACTUALIZADO EN SEGUNDA VERIFICACIÓN] "${nombre}" (${config.origen})`);
 
@@ -283,13 +331,16 @@ const handleUpsert = async (pageId) => {
     return;
   }
 
-  await notion.pages.create({
-    parent: { data_source_id: INDICE_MASTER },
-    properties: {
-      ...properties,
-      'Fecha de creación': { date: { start: new Date().toISOString() } }
-    }
-  });
+  const createProperties = {
+    ...properties,
+    'Fecha de creación': { date: { start: new Date().toISOString() } }
+  };
+
+  await withEstadoFallback(
+    (props) => notion.pages.create({ parent: { data_source_id: INDICE_MASTER }, properties: props }),
+    createProperties,
+    nombre
+  );
 
   log.info(`[CREADO] "${nombre}" (${config.origen})`);
 

@@ -4,6 +4,13 @@
  * - Tienen Origen_Base
  * - Pero NO tienen llena su relación correspondiente
  *
+ * LIMITACIÓN CONOCIDA:
+ * Este script detecta solo registros donde la relación quedó vacía desde
+ * el inicio (bug de creación). NO detecta registros cuya página fuente fue
+ * eliminada después de indexarse, porque Notion no limpia la relación
+ * automáticamente al archivar una página.
+ * Para limpiar huérfanos por página eliminada, usar: node cleanupByPageId.js
+ *
  * IMPORTANTE: DRY_RUN está en true por defecto.
  * Cambia a false SOLO cuando quieras ejecutar el borrado real.
  * No toca las bases originales.
@@ -14,7 +21,7 @@ require('dotenv').config();
 const notion = require('./lib/notionClient');
 const { INDICE_MASTER, dbMap } = require('./config');
 
-const DRY_RUN = false; // Cambiar a false solo para ejecutar borrado real
+const DRY_RUN = true; // Cambiar a false solo para ejecutar borrado real
 
 // Relación esperada según Origen_Base
 const relationByOrigen = Object.values(dbMap).reduce((acc, config) => {
