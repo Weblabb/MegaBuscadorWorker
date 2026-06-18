@@ -3,6 +3,9 @@
  * Lee propiedades de la página origen, refleja metadata en INDICE_MASTER,
  * extrae tags tartamudos del título si no hay tags manuales,
  * evita duplicados por PAGE_ID y registra eventos en LOGS_WORKER.
+ *
+ * Señal de borrado: si el título contiene "xxx" (mayúscula o minúscula),
+ * archiva la página en la fuente y en INDICE_MASTER sin crear ni actualizar registro.
  */
 
 const notion = require('../lib/notionClient');
@@ -194,6 +197,35 @@ const handleUpsert = async (pageId) => {
     return;
   }
 
+  // Señal de borrado: título contiene "xxx" (cualquier combinación de mayúscula/minúscula)
+  if (nombre.toLowerCase().includes('xxx')) {
+    // Archivar la página en la base fuente
+    await notion.pages.update({
+      page_id: pageId,
+      archived: true
+    });
+
+    // Archivar el registro en INDICE_MASTER si existe
+    const existingForDelete = await findExisting(pageId);
+    if (existingForDelete) {
+      await notion.pages.update({
+        page_id: existingForDelete.id,
+        archived: true
+      });
+    }
+
+    log.info(`[ELIMINADO POR xxx] "${nombre}" (${config.origen})`);
+    await writeLog({
+      tipoEvento: 'deleted',
+      pageId,
+      baseOrigen: config.origen,
+      resultado: 'OK',
+      mensaje: `Eliminado por señal xxx: ${nombre}`,
+      tiempoMs: Date.now() - startTime
+    });
+    return;
+  }
+
   const url = pageData.url;
   const properties = buildProperties({ pageId, parentDsId, nombre, url, config, pageData });
 
@@ -227,7 +259,6 @@ const handleUpsert = async (pageId) => {
   }
 
   // Espera corta aleatoria antes de la 2da verificación.
-  // Si otro evento del mismo pageId está creando en paralelo, este lo detectará en findExisting.
   await jitter();
 
   const existingBeforeCreate = await findExisting(pageId);
