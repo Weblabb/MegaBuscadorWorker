@@ -8,7 +8,7 @@ const lock = require('../lib/lock');
 const log = require('../lib/log');
 const { writeLog } = require('../lib/logger');
 const { withRetry } = require('../lib/retry');
-const { VALID_EVENT_TYPES, INDICE_MASTER } = require('../config');
+const { VALID_EVENT_TYPES, INDICE_MASTER, dbMap } = require('../config');
 const { handleUpsert } = require('./upsertHandler');
 const { handleDelete } = require('./deleteHandler');
 
@@ -31,19 +31,39 @@ const processEventAsync = async (event) => {
   try {
     await withRetry(async () => {
       switch (event.type) {
+
         case 'page.deleted':
           await handleDelete(pageId);
           break;
+
         case 'page.undeleted':
-          // El registro en INDICE_MASTER fue archivado al borrar.
-          // findExisting no puede encontrar páginas archivadas, así que no
-          // intentamos restaurarlo. handleUpsert crea un registro nuevo limpio.
+          // El registro fue archivado al borrar.
+          // findExisting no devuelve páginas archivadas, así que
+          // handleUpsert crea un registro nuevo limpio.
           await handleUpsert(pageId);
           break;
+
+        case 'page.moved': {
+          // Si la página se movió fuera de las bases conectadas → eliminar de INDICE_MASTER
+          // Si se movió dentro o entre bases conectadas → re-indexar
+          const newParentDsId =
+            event.data?.parent?.data_source_id ||
+            event.entity?.parent?.data_source_id ||
+            event.parent?.data_source_id;
+
+          if (newParentDsId && !dbMap[newParentDsId]) {
+            await handleDelete(pageId);
+          } else {
+            await handleUpsert(pageId);
+          }
+          break;
+        }
+
         default:
           await handleUpsert(pageId);
       }
     }, `${event.type} ${pageId}`);
+
   } catch (error) {
     log.error(`[ERROR DEFINITIVO] pageId ${pageId}: ${error.message}`);
     if (error.code) log.error(`  code: ${error.code}, status: ${error.status}`);

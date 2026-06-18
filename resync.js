@@ -12,11 +12,23 @@ const DEFAULT_HOURS = Number(process.env.RESYNC_HOURS || 24);
 
 const args = process.argv.slice(2);
 const isFullSync = args.includes('--full');
-const baseArg = args.find(arg => arg.startsWith('--base='));
 
-const onlyBase = baseArg
-  ? baseArg.replace('--base=', '').trim().toUpperCase()
-  : null;
+// Reconstruir el valor de --base uniendo palabras sueltas tras el signo =
+// Esto permite ejecutar sin comillas:
+//   node resync.js --base=PROGRAMAS Y PROYECTOS
+//   node resync.js --base=COBRAR Y PAGAR --full
+const baseArgIndex = args.findIndex(arg => arg.startsWith('--base='));
+let onlyBase = null;
+if (baseArgIndex !== -1) {
+  const firstPart = args[baseArgIndex].replace('--base=', '').trim();
+  const extraParts = [];
+  for (let i = baseArgIndex + 1; i < args.length; i++) {
+    if (args[i].startsWith('--')) break;
+    extraParts.push(args[i]);
+  }
+  const fullBase = [firstPart, ...extraParts].join(' ').trim();
+  onlyBase = fullBase ? fullBase.toUpperCase() : null;
+}
 
 const hoursArg = args.find(arg => arg.startsWith('--hours='));
 const hours = hoursArg
@@ -86,8 +98,6 @@ const runResync = async () => {
     log.info(`\n--- Base: ${config.origen} ---`);
 
     try {
-      // withRetry cubre fallos de red durante la paginación.
-      // Si falla, reinicia la paginación desde el principio (seguro).
       const pageIds = await withRetry(
         () => listPages(dsId, sinceIso),
         `listPages | ${config.origen}`

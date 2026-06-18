@@ -9,7 +9,8 @@ const { writeLog } = require('../lib/logger');
 const { findExisting } = require('./upsertHandler');
 
 /**
- * Elimina físicamente el registro de INDICE_MASTER al recibir page.deleted.
+ * Elimina físicamente el registro de INDICE_MASTER al recibir page.deleted o page.moved
+ * hacia una base no conectada.
  * Entrada: pageId (string)
  * Salida: void
  */
@@ -18,12 +19,12 @@ const handleDelete = async (pageId) => {
   const existing = await findExisting(pageId);
 
   if (!existing) {
-    console.log(`[INFO] page.deleted sin registro en INDICE_MASTER: ${pageId}`);
+    console.log(`[INFO] delete sin registro en INDICE_MASTER: ${pageId}`);
     await writeLog({
       tipoEvento: 'ignored',
       pageId,
       resultado: 'OK',
-      mensaje: 'page.deleted sin registro en INDICE_MASTER',
+      mensaje: 'delete sin registro en INDICE_MASTER',
       tiempoMs: Date.now() - startTime
     });
     return;
@@ -44,44 +45,4 @@ const handleDelete = async (pageId) => {
   });
 };
 
-/**
- * Restaura un registro en INDICE_MASTER.
- * Si está archivado, lo desarchiva. Si no existe, se ignora (el siguiente upsert lo creará).
- * Entrada: pageId (string)
- * Salida: void
- */
-const handleRestore = async (pageId) => {
-  const startTime = Date.now();
-  const existing = await findExisting(pageId);
-
-  if (!existing) {
-    console.log(`[INFO] page.undeleted sin registro en INDICE_MASTER: ${pageId}`);
-    await writeLog({
-      tipoEvento: 'ignored',
-      pageId,
-      resultado: 'OK',
-      mensaje: 'page.undeleted sin registro en INDICE_MASTER. Se recreará al próximo upsert.',
-      tiempoMs: Date.now() - startTime
-    });
-    return;
-  }
-
-  await notion.pages.update({
-    page_id: existing.id,
-    archived: false,
-    properties: {
-      'Última actualización': { date: { start: new Date().toISOString() } }
-    }
-  });
-
-  console.log(`[RESTAURADO] pageId: ${pageId}`);
-  await writeLog({
-    tipoEvento: 'restored',
-    pageId,
-    resultado: 'OK',
-    mensaje: 'Restaurado desde papelera',
-    tiempoMs: Date.now() - startTime
-  });
-};
-
-module.exports = { handleDelete, handleRestore };
+module.exports = { handleDelete };
