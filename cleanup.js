@@ -33,7 +33,7 @@ require('dotenv').config();
 const notion = require('./lib/notionClient');
 const { INDICE_MASTER, dbMap } = require('./config');
 
-const DRY_RUN = true; // Cambiar a false SOLO para ejecutar borrado real
+const DRY_RUN = !process.argv.includes('--execute');
 
 const DELAY_MS = 350;
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
